@@ -1,69 +1,241 @@
-module.exports = async (req, res) => {
-  try {
-    const videoId = req.query.id;
-    if (!videoId) {
-      return res.status(400).json({ error: 'Потрібно вказати ID відео' });
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Recommendation Tree</title>
+  <!-- Завантаження Vis.js для графа -->
+  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #121212;
+      color: white;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .controls {
+      padding: 15px;
+      background: #1e1e1e;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+      z-index: 10;
+    }
+    input {
+      width: 450px;
+      max-width: 70%;
+      padding: 12px 15px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #2a2a2a;
+      color: white;
+      font-size: 15px;
+      outline: none;
+    }
+    input:focus { border-color: #ff0000; }
+    button {
+      padding: 12px 24px;
+      border-radius: 6px;
+      border: none;
+      background: #ff0000;
+      color: white;
+      font-size: 15px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #cc0000; }
+    #network {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+    }
+    .loading-overlay {
+      position: absolute;
+      top: 70px;
+      right: 20px;
+      background: rgba(0, 0, 0, 0.85);
+      padding: 10px 18px;
+      border-radius: 20px;
+      font-size: 14px;
+      display: none;
+      border: 1px solid #444;
+      z-index: 100;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <input type="text" id="urlInput" placeholder="Вставити посилання на YouTube...">
+    <button id="startBtn">Запустити дерево</button>
+  </div>
+
+  <div id="loading" class="loading-overlay">⏳ Завантаження рекомендацій...</div>
+  <div id="network"></div>
+
+  <script>
+    // Ініціалізація Vis.js
+    var nodes = new vis.DataSet([]);
+    var edges = new vis.DataSet([]);
+    var container = document.getElementById('network');
+    var loadingEl = document.getElementById('loading');
+    var urlInput = document.getElementById('urlInput');
+    var startBtn = document.getElementById('startBtn');
+    
+    var data = { nodes: nodes, edges: edges };
+    var options = {
+      nodes: {
+        shape: 'box',
+        margin: 12,
+        color: { 
+          background: '#1f1f1f', 
+          border: '#ff0000',
+          highlight: { background: '#2d2d2d', border: '#ff4444' }
+        },
+        font: { color: '#ffffff', size: 14, face: 'sans-serif' },
+        borderWidth: 2,
+        shadow: true
+      },
+      edges: {
+        color: { color: '#666666', highlight: '#ff0000' },
+        arrows: { to: { enabled: true, scaleFactor: 0.8 } },
+        smooth: { type: 'continuous' }
+      },
+      physics: {
+        enabled: true,
+        solver: 'forceAtlas2Based',
+        forceAtlas2Based: {
+          gravitationalConstant: -50,
+          centralGravity: 0.01,
+          springLength: 100,
+          springConstant: 0.08
+        }
+      }
+    };
+    
+    var network = new vis.Network(container, data, options);
+
+    function extractVideoId(url) {
+      if (!url) return '';
+      url = url.trim();
+      var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+      var match = url.match(regExp);
+      if (match && match[2].length === 11) return match[2];
+      if (url.length === 11 && !url.includes('/') && !url.includes('.')) return url;
+      return url;
     }
 
-    // Публічні дзеркала API
-    const instances = [
-      'https://pipedapi.kavin.rocks',
-      'https://api.piped.privacydev.net',
-      'https://pipedapi.palvelu.org',
-      'https://pipedapi.mha.fi'
-    ];
+    function showLoading(show) {
+      if (loadingEl) loadingEl.style.display = show ? 'block' : 'none';
+    }
 
-    let data = null;
-    let lastError = null;
+    async function fetchRelated(videoId, parentId) {
+      if (!videoId) return;
+      showLoading(true);
 
-    for (const instance of instances) {
       try {
-        const response = await fetch(`${instance}/streams/${videoId}`, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        });
-        if (response.ok) {
-          data = await response.json();
-          break;
+        var res = await fetch('/api/related?id=' + encodeURIComponent(videoId));
+        var result = await res.json();
+
+        if (!res.ok || result.error) {
+          alert('Помилка: ' + (result.error || 'Не вдалося завантажити дані'));
+          showLoading(false);
+          return;
         }
-      } catch (e) {
-        lastError = e;
+
+        if (!nodes.get(videoId)) {
+          nodes.add({
+            id: videoId,
+            label: result.current && result.current.title ? result.current.title : videoId
+          });
+        }
+
+        if (parentId && parentId !== videoId) {
+          var edgeId = parentId + '-' + videoId;
+          if (!edges.get(edgeId)) {
+            edges.add({ id: edgeId, from: parentId, to: videoId });
+          }
+        }
+
+        if (result.related && result.related.length > 0) {
+          result.related.forEach(function(item) {
+            if (!nodes.get(item.id)) {
+              nodes.add({
+                id: item.id,
+                label: item.title
+              });
+            }
+            var relEdgeId = videoId + '-' + item.id;
+            if (!edges.get(relEdgeId)) {
+              edges.add({ id: relEdgeId, from: videoId, to: item.id });
+            }
+          });
+        } else {
+          alert('Для цього відео більше немає рекомендацій.');
+        }
+
+      } catch (err) {
+        console.error('Помилка мережі:', err);
+        alert('Помилка зєднання з сервером');
+      } finally {
+        showLoading(false);
       }
     }
 
-    if (!data) {
-      throw new Error(lastError ? lastError.message : 'Сервери недоступні');
+    function startTree() {
+      var inputVal = urlInput.value;
+      if (!inputVal) {
+        alert('Будь ласка, вставте посилання на YouTube!');
+        return;
+      }
+      
+      var videoId = extractVideoId(inputVal);
+      if (!videoId || videoId.length !== 11) {
+        alert('Некоректне посилання або ID відео!');
+        return;
+      }
+
+      nodes.clear();
+      edges.clear();
+      fetchRelated(videoId, null);
     }
 
-    const related = (data.relatedStreams || [])
-      .filter(item => item.url && item.type === 'stream')
-      .slice(0, 5)
-      .map(item => {
-        const idMatch = item.url.match(/v=([^&]+)/);
-        const id = idMatch ? idMatch[1] : item.url.replace('/watch?v=', '');
-        
-        return {
-          id: id,
-          title: item.title || 'Без назви',
-          thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
-        };
+    // Безпечна прив'язка обробників подій без inline onclick
+    if (startBtn) {
+      startBtn.addEventListener('click', startTree);
+    }
+
+    if (urlInput) {
+      urlInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          startTree();
+        }
       });
+    }
 
-    res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
-
-    return res.status(200).json({
-      current: {
-        id: videoId,
-        title: data.title || 'Відео',
-        thumbnail: data.thumbnailUrl
-      },
-      related: related
+    // Одинарний клік — завантажити рекомендації для вузла
+    network.on("click", function (params) {
+      if (params.nodes && params.nodes.length > 0) {
+        var clickedNodeId = params.nodes[0];
+        fetchRelated(clickedNodeId, clickedNodeId);
+      }
     });
 
-  } catch (err) {
-    console.error('Помилка API:', err);
-    return res.status(500).json({ 
-      error: 'Не вдалося отримати рекомендації', 
-      details: err.message 
+    // Подвійний клік — відкрити відео на YouTube
+    network.on("doubleClick", function (params) {
+      if (params.nodes && params.nodes.length > 0) {
+        var videoId = params.nodes[0];
+        window.open('https://www.youtube.com/watch?v=' + videoId, '_blank');
+      }
     });
-  }
-};
+  </script>
+</body>
+</html>
