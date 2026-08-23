@@ -2,24 +2,24 @@ module.exports = async (req, res) => {
   try {
     const videoId = req.query.id;
     if (!videoId) {
-      return res.status(400).json({ error: 'Введіть ID відео' });
+      return res.status(400).json({ error: 'Потрібно вказати ID відео' });
     }
 
-    // Список надійних публічних дзеркал
+    // Публічні дзеркала API
     const instances = [
       'https://pipedapi.kavin.rocks',
       'https://api.piped.privacydev.net',
-      'https://pipedapi.palvelu.org'
+      'https://pipedapi.palvelu.org',
+      'https://pipedapi.mha.fi'
     ];
 
     let data = null;
     let lastError = null;
 
-    // Пробуємо отримати дані з одного із дзеркал
     for (const instance of instances) {
       try {
         const response = await fetch(`${instance}/streams/${videoId}`, {
-          headers: { 'User-Agent': 'Mozilla/5.0' }
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
         if (response.ok) {
           data = await response.json();
@@ -31,15 +31,13 @@ module.exports = async (req, res) => {
     }
 
     if (!data) {
-      throw new Error(lastError ? lastError.message : 'Усі сервери дзеркал недоступні');
+      throw new Error(lastError ? lastError.message : 'Сервери недоступні');
     }
 
-    // Витягуємо рекомендації (relatedStreams)
     const related = (data.relatedStreams || [])
       .filter(item => item.url && item.type === 'stream')
       .slice(0, 5)
       .map(item => {
-        // Отримуємо ID відео з URL (/watch?v=ID)
         const idMatch = item.url.match(/v=([^&]+)/);
         const id = idMatch ? idMatch[1] : item.url.replace('/watch?v=', '');
         
@@ -50,7 +48,6 @@ module.exports = async (req, res) => {
         };
       });
 
-    // Кешуємо результат на 1 годину
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
 
     return res.status(200).json({
