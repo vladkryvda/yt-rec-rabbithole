@@ -4,7 +4,506 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YouTube Recommendations Explorer</title>
+  <style><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Recommendations Explorer</title>
   <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 28px 20px;
+      user-select: none;
+    }
+
+    main {
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Minimal Top Control Area */
+    .controls-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 4px;
+    }
+
+    .search-bar {
+      display: flex;
+      width: 100%;
+      max-width: 580px;
+      background: #141414;
+      border: 1px solid #222222;
+      border-radius: 28px;
+      padding: 4px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-bar:focus-within {
+      border-color: #333333;
+      box-shadow: 0 0 20px rgba(255, 255, 255, 0.03);
+    }
+
+    .search-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 10px 20px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .search-bar button {
+      background: #222222;
+      border: none;
+      color: #fff;
+      padding: 10px 22px;
+      border-radius: 24px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .search-bar button:hover {
+      background: #333333;
+    }
+
+    /* Tabs Bar */
+    .tabs-bar {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scrollbar-width: thin;
+      scrollbar-color: #222 transparent;
+    }
+
+    .tab-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #121212;
+      border: 1px solid #202020;
+      color: #888888;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      max-width: 180px;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+
+    .tab-item:hover {
+      background: #1a1a1a;
+      color: #cccccc;
+      border-color: #2a2a2a;
+    }
+
+    .tab-item.active {
+      background: #222222;
+      color: #ffffff;
+      border-color: #383838;
+    }
+
+    .tab-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex: 1;
+    }
+
+    .tab-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      font-size: 10px;
+      color: #777777;
+      opacity: 0;
+      transition: opacity 0.15s, background 0.15s, color 0.15s;
+    }
+
+    .tab-item:hover .tab-close,
+    .tab-item.active .tab-close {
+      opacity: 1;
+    }
+
+    .tab-close:hover {
+      background: rgba(255, 255, 255, 0.2);
+      color: #ffffff;
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 24px;
+    }
+
+    .current-title {
+      font-size: 13px;
+      color: #666666;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    .current-title span {
+      color: #dddddd;
+      font-weight: 500;
+    }
+
+    /* Video Grid (Minimalist Cards) */
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+    }
+
+    .video-card {
+      position: relative;
+      background: #111111;
+      border-radius: 10px;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
+      cursor: pointer;
+      border: 1px solid #1c1c1c;
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .video-card:hover {
+      transform: scale(1.02);
+      border-color: #333333;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    }
+
+    .video-card img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .video-card .card-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.88) 100%);
+      padding: 12px;
+      opacity: 0.85;
+      transition: opacity 0.2s;
+    }
+
+    .video-card:hover .card-overlay {
+      opacity: 1;
+    }
+
+    .video-title {
+      font-size: 12px;
+      line-height: 1.3;
+      color: #ffffff;
+      font-weight: 500;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+
+    .state-message {
+      text-align: center;
+      padding: 100px 20px;
+      font-size: 14px;
+      color: #555555;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(50px);
+      background: #222222;
+      border: 1px solid #333333;
+      color: #ffffff;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+      z-index: 999;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <main>
+    <div class="controls-wrapper">
+      <div class="search-bar">
+        <input type="text" id="urlInput" placeholder="Paste YouTube link or Video ID..." />
+        <button id="searchBtn">Explore</button>
+      </div>
+    </div>
+
+    <!-- Dynamic Tabs Bar -->
+    <div class="tabs-bar" id="tabsBar"></div>
+
+    <div class="status-bar">
+      <div class="current-title" id="currentTitle"></div>
+    </div>
+
+    <div id="contentArea">
+      <div class="state-message">Paste a YouTube link above to start exploring</div>
+    </div>
+  </main>
+
+  <div class="toast" id="toast">Link copied to clipboard!</div>
+
+  <script>
+    var tabs = [];
+    var activeTabId = null;
+
+    var urlInput = document.getElementById('urlInput');
+    var searchBtn = document.getElementById('searchBtn');
+    var currentTitle = document.getElementById('currentTitle');
+    var tabsBar = document.getElementById('tabsBar');
+    var contentArea = document.getElementById('contentArea');
+    var toast = document.getElementById('toast');
+
+    function extractVideoId(url) {
+      if (!url) return '';
+      url = url.trim();
+      var regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+      var match = url.match(regExp);
+      if (match && match[2].length === 11) return match[2];
+      if (url.length === 11 && !url.includes('/') && !url.includes('.')) return url;
+      return url;
+    }
+
+    function escapeHtml(text) {
+      var div = document.createElement('div');
+      div.innerText = text || '';
+      return div.innerHTML;
+    }
+
+    function showToast(message) {
+      toast.innerText = message;
+      toast.classList.add('visible');
+      setTimeout(function() {
+        toast.classList.remove('visible');
+      }, 2000);
+    }
+
+    function triggerSearch() {
+      var val = urlInput.value;
+      var id = extractVideoId(val);
+      if (!id || id.length !== 11) return;
+      openVideoTab(id);
+    }
+
+    async function openVideoTab(videoId) {
+      if (!videoId) return;
+
+      var newTabId = 'tab_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+
+      contentArea.innerHTML = '<div class="state-message">Loading recommendations...</div>';
+
+      try {
+        var res = await fetch('/api/related?id=' + encodeURIComponent(videoId));
+        var data = await res.json();
+
+        if (!res.ok || data.error) {
+          contentArea.innerHTML = '<div class="state-message">Error: ' + escapeHtml(data.error || 'Failed to fetch data') + '</div>';
+          return;
+        }
+
+        var newTab = {
+          tabId: newTabId,
+          videoId: videoId,
+          title: data.current.title || 'Untitled Video',
+          data: data
+        };
+
+        tabs.push(newTab);
+        activeTabId = newTabId;
+
+        renderTabs();
+        displayTabData(newTab);
+
+      } catch (err) {
+        console.error(err);
+        contentArea.innerHTML = '<div class="state-message">Network error</div>';
+      }
+    }
+
+    function switchTab(tabId) {
+      var tab = tabs.find(function(t) { return t.tabId === tabId; });
+      if (!tab) return;
+
+      activeTabId = tabId;
+      renderTabs();
+      displayTabData(tab);
+    }
+
+    function closeTab(tabId) {
+      var index = tabs.findIndex(function(t) { return t.tabId === tabId; });
+      if (index === -1) return;
+
+      tabs.splice(index, 1);
+
+      if (tabs.length === 0) {
+        activeTabId = null;
+        renderTabs();
+        currentTitle.innerHTML = '';
+        contentArea.innerHTML = '<div class="state-message">Paste a YouTube link above to start exploring</div>';
+        return;
+      }
+
+      if (activeTabId === tabId) {
+        var newIndex = index >= tabs.length ? tabs.length - 1 : index;
+        activeTabId = tabs[newIndex].tabId;
+        displayTabData(tabs[newIndex]);
+      }
+
+      renderTabs();
+    }
+
+    function renderTabs() {
+      if (tabs.length === 0) {
+        tabsBar.innerHTML = '';
+        tabsBar.style.display = 'none';
+        return;
+      }
+
+      tabsBar.style.display = 'flex';
+      var html = '';
+
+      tabs.forEach(function(tab) {
+        var isActive = tab.tabId === activeTabId;
+        html += '<div class="tab-item ' + (isActive ? 'active' : '') + '" data-tab-id="' + tab.tabId + '">';
+        html += '  <span class="tab-title" title="' + escapeHtml(tab.title) + '">' + escapeHtml(tab.title) + '</span>';
+        html += '  <span class="tab-close" data-close-id="' + tab.tabId + '">✕</span>';
+        html += '</div>';
+      });
+
+      tabsBar.innerHTML = html;
+
+      // Event listeners for tabs & close buttons
+      var tabElements = tabsBar.querySelectorAll('.tab-item');
+      tabElements.forEach(function(elem) {
+        elem.addEventListener('click', function(e) {
+          var closeBtn = e.target.closest('.tab-close');
+          if (closeBtn) {
+            e.stopPropagation();
+            var tabIdToClose = closeBtn.getAttribute('data-close-id');
+            closeTab(tabIdToClose);
+            return;
+          }
+
+          var clickedTabId = elem.getAttribute('data-tab-id');
+          switchTab(clickedTabId);
+        });
+      });
+    }
+
+    function displayTabData(tab) {
+      currentTitle.innerHTML = 'Exploring recommendations for: <span>' + escapeHtml(tab.data.current.title) + '</span>';
+
+      if (!tab.data.related || tab.data.related.length === 0) {
+        contentArea.innerHTML = '<div class="state-message">No recommendations found</div>';
+        return;
+      }
+
+      renderGrid(tab.data.related);
+    }
+
+    function renderGrid(videos) {
+      var html = '<div class="video-grid">';
+      
+      videos.forEach(function(video) {
+        html += '<div class="video-card" data-id="' + video.id + '" title="' + escapeHtml(video.title) + '">';
+        html += '  <img src="' + escapeHtml(video.thumbnail) + '" alt="" loading="lazy">';
+        html += '  <div class="card-overlay">';
+        html += '    <div class="video-title">' + escapeHtml(video.title) + '</div>';
+        html += '  </div>';
+        html += '</div>';
+      });
+
+      html += '</div>';
+      contentArea.innerHTML = html;
+
+      var cards = contentArea.querySelectorAll('.video-card');
+      cards.forEach(function(card) {
+        var id = card.getAttribute('data-id');
+
+        // Left Click -> Open in a new Tab
+        card.addEventListener('click', function(e) {
+          openVideoTab(id);
+        });
+
+        // Right Click -> Copy link
+        card.addEventListener('contextmenu', function(e) {
+          e.preventDefault();
+          var link = 'https://www.youtube.com/watch?v=' + id;
+          navigator.clipboard.writeText(link).then(function() {
+            showToast('Link copied to clipboard!');
+          }).catch(function() {
+            showToast('Failed to copy link');
+          });
+        });
+      });
+    }
+
+    // Event Listeners
+    searchBtn.addEventListener('click', triggerSearch);
+
+    urlInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        triggerSearch();
+      }
+    });
+
+    urlInput.addEventListener('paste', function() {
+      setTimeout(triggerSearch, 50);
+    });
+  </script>
+</body>
+</html>
     * {
       box-sizing: border-box;
       margin: 0;
