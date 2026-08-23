@@ -2,17 +2,17 @@ module.exports = async (req, res) => {
   try {
     const videoId = req.query.id;
     if (!videoId) {
-      return res.status(400).json({ error: 'Потрібно вказати ID відео' });
+      return res.status(400).json({ error: 'Video ID is required' });
     }
 
     const apiKey = process.env.YOUTUBE_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ 
-        error: 'Не налаштовано YOUTUBE_API_KEY у Vercel Environment Variables' 
+        error: 'YOUTUBE_API_KEY is not configured in environment variables' 
       });
     }
 
-    // 1. Отримуємо деталі активного відео
+    // 1. Get current video details
     const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
     const videoRes = await fetch(videoUrl);
     const videoData = await videoRes.json();
@@ -34,10 +34,10 @@ module.exports = async (req, res) => {
       channelTitle = snippet.channelTitle || '';
     }
 
-    // Очищення назви відео для пошуку релевантних
+    // Clean title for search query
     let queryKeywords = currentTitle
       .replace(/[\(\[\{].*?[\)\]\}]/g, '')
-      .replace(/[^\w\s\u0400-\u04FF]/g, ' ');
+      .replace(/[^\w\s]/g, ' ');
     const words = queryKeywords.split(/\s+/).filter(w => w.length > 2);
     queryKeywords = words.slice(0, 5).join(' ');
 
@@ -45,8 +45,8 @@ module.exports = async (req, res) => {
       queryKeywords = tags.slice(0, 3).join(' ');
     }
 
-    // 2. Пошук схожих відео
-    let searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=12&q=${encodeURIComponent(queryKeywords)}&key=${apiKey}`;
+    // 2. Search related videos (videoDuration=medium filters out Shorts under 4 min)
+    let searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoDuration=medium&maxResults=16&q=${encodeURIComponent(queryKeywords)}&key=${apiKey}`;
     if (categoryId) {
       searchUrl += `&videoCategoryId=${categoryId}`;
     }
@@ -62,9 +62,9 @@ module.exports = async (req, res) => {
       .filter(item => item.id && item.id.videoId && item.id.videoId !== videoId)
       .map(item => ({
         id: item.id.videoId,
-        title: item.snippet.title || 'Без назви',
+        title: item.snippet.title || 'Untitled',
         channelTitle: item.snippet.channelTitle || '',
-        thumbnail: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url || `https://i.ytimg.com/vi/${item.id.videoId}/hqdefault.jpg`
+        thumbnail: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || `https://i.ytimg.com/vi/${item.id.videoId}/hqdefault.jpg`
       }));
 
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
@@ -81,6 +81,6 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     console.error('API Error:', err);
-    return res.status(500).json({ error: 'Не вдалося отримати дані з YouTube', details: err.message });
+    return res.status(500).json({ error: 'Failed to fetch YouTube data', details: err.message });
   }
 };
