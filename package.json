@@ -1,0 +1,7 @@
+{
+  "name": "yt-recommendation-tree",
+  "version": "1.0.0",
+  "dependencies": {
+    "youtubei.js": "^13.0.0"
+  }
+}
