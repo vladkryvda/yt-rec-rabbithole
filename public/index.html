@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YouTube Recommendation Tree</title>
-  <!-- Завантаження Vis.js для графа -->
+  <!-- Завантаження Vis.js для побудови інтерактивного дерева -->
   <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     * { box-sizing: border-box; }
@@ -74,15 +74,23 @@
 <body>
 
   <div class="controls">
-    <input type="text" id="urlInput" placeholder="Вставити посилання на YouTube...">
+    <input type="text" id="urlInput" placeholder="Вставте посилання на YouTube...">
     <button id="startBtn">Запустити дерево</button>
   </div>
 
-  <div id="loading" class="loading-overlay">⏳ Завантаження рекомендацій...</div>
+  <div id="loading" class="loading-overlay">⏳ Отримання рекомендацій...</div>
   <div id="network"></div>
 
   <script>
-    // Ініціалізація Vis.js
+    // Публічні дзеркала Invidious (підтримують прямі CORS запити з браузера)
+    var instances = [
+      'https://inv.tux.pizza',
+      'https://invidious.drgns.space',
+      'https://invidious.nerdvpn.de',
+      'https://yewtu.be',
+      'https://invidious.flokinet.to'
+    ];
+
     var nodes = new vis.DataSet([]);
     var edges = new vis.DataSet([]);
     var container = document.getElementById('network');
@@ -137,19 +145,51 @@
       if (loadingEl) loadingEl.style.display = show ? 'block' : 'none';
     }
 
+    // Прямий запит з браузера клієнта до дзеркал
+    async function fetchVideoDataDirectly(videoId) {
+      var lastErr = null;
+
+      for (var i = 0; i < instances.length; i++) {
+        var instance = instances[i];
+        try {
+          var controller = new AbortController();
+          var timeoutId = setTimeout(function() { controller.abort(); }, 3500);
+
+          var response = await fetch(instance + '/api/v1/videos/' + videoId, {
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            var resData = await response.json();
+            var related = (resData.recommendedVideos || []).slice(0, 5).map(function(item) {
+              return {
+                id: item.videoId,
+                title: item.title || 'Без назви'
+              };
+            });
+
+            return {
+              current: {
+                id: videoId,
+                title: resData.title || 'Відео'
+              },
+              related: related
+            };
+          }
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw new Error('Усі дзеркала недоступні');
+    }
+
     async function fetchRelated(videoId, parentId) {
       if (!videoId) return;
       showLoading(true);
 
       try {
-        var res = await fetch('/api/related?id=' + encodeURIComponent(videoId));
-        var result = await res.json();
-
-        if (!res.ok || result.error) {
-          alert('Помилка: ' + (result.error || 'Не вдалося завантажити дані'));
-          showLoading(false);
-          return;
-        }
+        var result = await fetchVideoDataDirectly(videoId);
 
         if (!nodes.get(videoId)) {
           nodes.add({
@@ -179,12 +219,12 @@
             }
           });
         } else {
-          alert('Для цього відео більше немає рекомендацій.');
+          alert('Для цього відео немає нових рекомендацій.');
         }
 
       } catch (err) {
-        console.error('Помилка мережі:', err);
-        alert('Помилка зєднання з сервером');
+        console.error('Помилка завантаження:', err);
+        alert('Не вдалося завантажити рекомендації з мережі.');
       } finally {
         showLoading(false);
       }
@@ -208,7 +248,6 @@
       fetchRelated(videoId, null);
     }
 
-    // Безпечна прив'язка обробників подій без inline onclick
     if (startBtn) {
       startBtn.addEventListener('click', startTree);
     }
@@ -221,7 +260,7 @@
       });
     }
 
-    // Одинарний клік — завантажити рекомендації для вузла
+    // Клік на вузол — завантажує його рекомендації
     network.on("click", function (params) {
       if (params.nodes && params.nodes.length > 0) {
         var clickedNodeId = params.nodes[0];
@@ -229,7 +268,7 @@
       }
     });
 
-    // Подвійний клік — відкрити відео на YouTube
+    // Подвійний клік — відкриває відео на YouTube
     network.on("doubleClick", function (params) {
       if (params.nodes && params.nodes.length > 0) {
         var videoId = params.nodes[0];
