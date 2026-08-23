@@ -1,134 +1,69 @@
-<!DOCTYPE html>
-<html lang="uk">
-<head>
-  <meta charset="UTF-8">
-  <title>YouTube Recommendation Tree</title>
-  <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-  <style>
-    body {
-      margin: 0;
-      font-family: sans-serif;
-      background: #121212;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-    .controls {
-      padding: 15px;
-      background: #1e1e1e;
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-    }
-    input {
-      width: 400px;
-      padding: 10px;
-      border-radius: 5px;
-      border: 1px solid #333;
-      background: #2a2a2a;
-      color: white;
-    }
-    button {
-      padding: 10px 20px;
-      border-radius: 5px;
-      border: none;
-      background: #ff0000;
-      color: white;
-      font-weight: bold;
-      cursor: pointer;
-    }
-    button:hover { background: #cc0000; }
-    #network {
-      flex: 1;
-      width: 100%;
-      height: 100%;
-    }
-  </style>
-</head>
-<body>
-
-  <div class="controls">
-    <input type="text" id="urlInput" placeholder="Вставте посилання на YouTube відео...">
-    <button onclick="startTree()">Запустити дерево</button>
-  </div>
-
-  <div id="network"></div>
-
-  <script>
-    const nodes = new vis.DataSet([]);
-    const edges = new vis.DataSet([]);
-    const container = document.getElementById('network');
-    
-    const data = { nodes, edges };
-    const options = {
-      nodes: {
-        shape: 'box',
-        margin: 10,
-        color: { background: '#2a2a2a', border: '#ff0000' },
-        font: { color: '#ffffff', size: 14 }
-      },
-      edges: {
-        color: '#555555',
-        arrows: 'to'
-      },
-      physics: {
-        solver: 'forceAtlas2Based'
-      }
-    };
-    
-    const network = new vis.Network(container, data, options);
-
-    function extractVideoId(url) {
-      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-      const match = url.match(regExp);
-      return (match && match[2].length === 11) ? match[2] : url;
-    }
-async function fetchRelated(videoId, parentId = null) {
+module.exports = async (req, res) => {
   try {
-    console.log('Запит до API для ID:', videoId);
-    const res = await fetch(`/api/related?id=${videoId}`);
-    const result = await res.json();
-
-    console.log('Отримано відповідь:', result);
-
-    if (result.error) {
-      alert('Помилка від сервера: ' + result.error + (result.details ? ` (${result.details})` : ''));
-      return;
+    const videoId = req.query.id;
+    if (!videoId) {
+      return res.status(400).json({ error: 'Потрібно вказати ID відео' });
     }
 
-    if (!nodes.get(videoId)) {
-      nodes.add({
+    // Публічні дзеркала API
+    const instances = [
+      'https://pipedapi.kavin.rocks',
+      'https://api.piped.privacydev.net',
+      'https://pipedapi.palvelu.org',
+      'https://pipedapi.mha.fi'
+    ];
+
+    let data = null;
+    let lastError = null;
+
+    for (const instance of instances) {
+      try {
+        const response = await fetch(`${instance}/streams/${videoId}`, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
+        if (response.ok) {
+          data = await response.json();
+          break;
+        }
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!data) {
+      throw new Error(lastError ? lastError.message : 'Сервери недоступні');
+    }
+
+    const related = (data.relatedStreams || [])
+      .filter(item => item.url && item.type === 'stream')
+      .slice(0, 5)
+      .map(item => {
+        const idMatch = item.url.match(/v=([^&]+)/);
+        const id = idMatch ? idMatch[1] : item.url.replace('/watch?v=', '');
+        
+        return {
+          id: id,
+          title: item.title || 'Без назви',
+          thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`
+        };
+      });
+
+    res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+
+    return res.status(200).json({
+      current: {
         id: videoId,
-        label: result.current?.title || videoId
-      });
-    }
-
-    if (parentId && !edges.get(`${parentId}-${videoId}`)) {
-      edges.add({ id: `${parentId}-${videoId}`, from: parentId, to: videoId });
-    }
-
-    if (result.related && result.related.length > 0) {
-      result.related.forEach(item => {
-        if (!nodes.get(item.id)) {
-          nodes.add({
-            id: item.id,
-            label: item.title
-          });
-        }
-        if (!edges.get(`${videoId}-${item.id}`)) {
-          edges.add({ id: `${videoId}-${item.id}`, from: videoId, to: item.id });
-        }
-      });
-    } else {
-      alert('YouTube не повернув рекомендацій для цього відео.');
-    }
+        title: data.title || 'Відео',
+        thumbnail: data.thumbnailUrl
+      },
+      related: related
+    });
 
   } catch (err) {
-    alert('Не вдалося з’єднатися з сервером');
-    console.error('Помилка мережі/коду:', err);
+    console.error('Помилка API:', err);
+    return res.status(500).json({ 
+      error: 'Не вдалося отримати рекомендації', 
+      details: err.message 
+    });
   }
-}
-  </script>
-</body>
-</html>
+};
