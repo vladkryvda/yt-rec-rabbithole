@@ -12,7 +12,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // 1. Get current video details
+    // 1. Отримуємо деталі активного відео
     const videoUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${videoId}&key=${apiKey}`;
     const videoRes = await fetch(videoUrl);
     const videoData = await videoRes.json();
@@ -23,36 +23,55 @@ module.exports = async (req, res) => {
 
     let currentTitle = videoId;
     let tags = [];
-    let categoryId = '';
-    let channelTitle = '';
 
     if (videoData.items && videoData.items.length > 0) {
       const snippet = videoData.items[0].snippet;
       currentTitle = snippet.title;
       tags = snippet.tags || [];
-      categoryId = snippet.categoryId || '';
-      channelTitle = snippet.channelTitle || '';
     }
 
-    // Clean title for search query
-    let queryKeywords = currentTitle
-      .replace(/[\(\[\{].*?[\)\]\}]/g, '')
-      .replace(/[^\w\s]/g, ' ');
-    const words = queryKeywords.split(/\s+/).filter(w => w.length > 2);
-    queryKeywords = words.slice(0, 5).join(' ');
+    // Очищення назви з збереженням кирилиці та всіх літер Unicode (\p{L})
+    let cleanTitle = currentTitle
+      .replace(/[\(\[\{].*?[\)\]\}]/g, '')  // прибираємо дужки
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')    // залишаємо будь-які букви, цифри та пробіли
+      .trim();
 
-    if (tags.length > 0) {
+    const words = cleanTitle.split(/\s+/).filter(w => w.length > 1);
+    let queryKeywords = words.slice(0, 4).join(' ');
+
+    if (!queryKeywords && tags.length > 0) {
       queryKeywords = tags.slice(0, 3).join(' ');
     }
 
-    // 2. Search related videos (videoDuration=medium filters out Shorts under 4 min)
-    let searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoDuration=medium&maxResults=16&q=${encodeURIComponent(queryKeywords)}&key=${apiKey}`;
-    if (categoryId) {
-      searchUrl += `&videoCategoryId=${categoryId}`;
+    if (!queryKeywords) {
+      queryKeywords = currentTitle;
     }
 
-    const searchRes = await fetch(searchUrl);
-    const searchData = await searchRes.json();
+    // Функція пошуку в YouTube API
+    async function searchYouTube(query, filterMedium = true) {
+      let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=16&q=${encodeURIComponent(query)}&key=${apiKey}`;
+      if (filterMedium) {
+        url += '&videoDuration=medium'; // Без Shorts
+      }
+      const res = await fetch(url);
+      return await res.json();
+    }
+
+    // 2. Пошук (Спочатку без Shorts)
+    let searchData = await searchYouTube(queryKeywords, true);
+
+    // Фолбек 1: Якщо з фільтром Shorts 0 результатів — шукаємо без нього
+    if (!searchData.items || searchData.items.length === 0) {
+      searchData = await searchYouTube(queryKeywords, false);
+    }
+
+    // Фолбек 2: Якщо все одно 0 результатів — шукаємо лише за першими 2 словами
+    if (!searchData.items || searchData.items.length === 0) {
+      const shortQuery = words.slice(0, 2).join(' ');
+      if (shortQuery) {
+        searchData = await searchYouTube(shortQuery, false);
+      }
+    }
 
     if (searchData.error) {
       return res.status(400).json({ error: searchData.error.message });
@@ -73,7 +92,6 @@ module.exports = async (req, res) => {
       current: {
         id: videoId,
         title: currentTitle,
-        channelTitle: channelTitle,
         thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
       },
       related: related
