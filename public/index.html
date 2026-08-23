@@ -30,7 +30,6 @@
       gap: 24px;
     }
 
-    /* Minimal Top Control Area */
     .controls-wrapper {
       display: flex;
       flex-direction: column;
@@ -121,7 +120,6 @@
       border-color: #333333;
     }
 
-    /* Video Grid (Minimalist Cards) */
     .video-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -186,7 +184,6 @@
       color: #555555;
     }
 
-    /* Toast Notification */
     .toast {
       position: fixed;
       bottom: 24px;
@@ -268,6 +265,14 @@
       }, 2000);
     }
 
+    function triggerSearch() {
+      var val = urlInput.value;
+      var id = extractVideoId(val);
+      if (!id || id.length !== 11) return;
+      historyStack = [];
+      loadRecommendations(id, false);
+    }
+
     async function loadRecommendations(videoId, isBackNav) {
       if (!videoId) return;
 
@@ -322,12 +327,12 @@
       cards.forEach(function(card) {
         var id = card.getAttribute('data-id');
 
-        // Left Click: Load new stream
+        // Left Click
         card.addEventListener('click', function(e) {
           loadRecommendations(id, false);
         });
 
-        // Right Click: Copy URL
+        // Right Click
         card.addEventListener('contextmenu', function(e) {
           e.preventDefault();
           var link = 'https://www.youtube.com/watch?v=' + id;
@@ -355,21 +360,17 @@
       }
     });
 
-    searchBtn.addEventListener('click', function() {
-      var val = urlInput.value;
-      var id = extractVideoId(val);
-      if (!id || id.length !== 11) {
-        alert('Please enter a valid YouTube link or Video ID');
-        return;
-      }
-      historyStack = [];
-      loadRecommendations(id, false);
-    });
+    searchBtn.addEventListener('click', triggerSearch);
 
     urlInput.addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
-        searchBtn.click();
+        triggerSearch();
       }
+    });
+
+    // 🚀 Автозапуск при вставці посилання (Paste Event)
+    urlInput.addEventListener('paste', function() {
+      setTimeout(triggerSearch, 50);
     });
   </script>
 </body>
