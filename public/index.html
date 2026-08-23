@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>YouTube Recommendation Tree</title>
-  <!-- Завантаження Vis.js для побудови інтерактивного дерева -->
+  <!-- Завантаження Vis.js для візуалізації -->
   <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
   <style>
     * { box-sizing: border-box; }
@@ -22,6 +22,7 @@
       padding: 15px;
       background: #1e1e1e;
       display: flex;
+      flex-wrap: wrap;
       gap: 10px;
       justify-content: center;
       align-items: center;
@@ -29,24 +30,24 @@
       z-index: 10;
     }
     input {
-      width: 450px;
-      max-width: 70%;
-      padding: 12px 15px;
+      padding: 10px 14px;
       border-radius: 6px;
       border: 1px solid #333;
       background: #2a2a2a;
       color: white;
-      font-size: 15px;
+      font-size: 14px;
       outline: none;
     }
     input:focus { border-color: #ff0000; }
+    #apiKeyInput { width: 280px; }
+    #urlInput { width: 400px; flex-grow: 1; max-width: 500px; }
     button {
-      padding: 12px 24px;
+      padding: 10px 20px;
       border-radius: 6px;
       border: none;
       background: #ff0000;
       color: white;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: bold;
       cursor: pointer;
       transition: background 0.2s;
@@ -59,7 +60,7 @@
     }
     .loading-overlay {
       position: absolute;
-      top: 70px;
+      top: 80px;
       right: 20px;
       background: rgba(0, 0, 0, 0.85);
       padding: 10px 18px;
@@ -74,30 +75,31 @@
 <body>
 
   <div class="controls">
+    <input type="password" id="apiKeyInput" placeholder="Ваш Google YouTube API Key">
     <input type="text" id="urlInput" placeholder="Вставте посилання на YouTube...">
     <button id="startBtn">Запустити дерево</button>
   </div>
 
-  <div id="loading" class="loading-overlay">⏳ Отримання рекомендацій...</div>
+  <div id="loading" class="loading-overlay">⏳ Отримання даних з YouTube API...</div>
   <div id="network"></div>
 
   <script>
-    // Публічні дзеркала Invidious (підтримують прямі CORS запити з браузера)
-    var instances = [
-      'https://inv.tux.pizza',
-      'https://invidious.drgns.space',
-      'https://invidious.nerdvpn.de',
-      'https://yewtu.be',
-      'https://invidious.flokinet.to'
-    ];
-
     var nodes = new vis.DataSet([]);
     var edges = new vis.DataSet([]);
     var container = document.getElementById('network');
     var loadingEl = document.getElementById('loading');
+    var apiKeyInput = document.getElementById('apiKeyInput');
     var urlInput = document.getElementById('urlInput');
     var startBtn = document.getElementById('startBtn');
     
+    // Автоматично зберігаємо та завантажуємо API Key з локального сховища
+    var savedKey = localStorage.getItem('yt_api_key') || '';
+    if (savedKey) apiKeyInput.value = savedKey;
+
+    apiKeyInput.addEventListener('input', function() {
+      localStorage.setItem('yt_api_key', apiKeyInput.value.trim());
+    });
+
     var data = { nodes: nodes, edges: edges };
     var options = {
       nodes: {
@@ -145,51 +147,82 @@
       if (loadingEl) loadingEl.style.display = show ? 'block' : 'none';
     }
 
-    // Прямий запит з браузера клієнта до дзеркал
-    async function fetchVideoDataDirectly(videoId) {
-      var lastErr = null;
+    function extractSearchKeywords(title) {
+      if (!title) return '';
+      var cleaned = title.replace(/[\(\[\{].*?[\)\]\}]/g, '').replace(/[^\w\s\u0400-\u04FF]/g, ' ');
+      var words = cleaned.split(/\s+/).filter(function(w) { return w.length > 2; });
+      return words.slice(0, 5).join(' ');
+    }
 
-      for (var i = 0; i < instances.length; i++) {
-        var instance = instances[i];
-        try {
-          var controller = new AbortController();
-          var timeoutId = setTimeout(function() { controller.abort(); }, 3500);
+    // Запит через офіційний Google YouTube Data API v3
+    async function fetchFromYouTubeApi(videoId, apiKey) {
+      var videoUrl = 'https://www.googleapis.com/youtube/v3/videos?part=snippet&id=' + videoId + '&key=' + apiKey;
+      var videoRes = await fetch(videoUrl);
+      var videoData = await videoRes.json();
 
-          var response = await fetch(instance + '/api/v1/videos/' + videoId, {
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          if (response.ok) {
-            var resData = await response.json();
-            var related = (resData.recommendedVideos || []).slice(0, 5).map(function(item) {
-              return {
-                id: item.videoId,
-                title: item.title || 'Без назви'
-              };
-            });
-
-            return {
-              current: {
-                id: videoId,
-                title: resData.title || 'Відео'
-              },
-              related: related
-            };
-          }
-        } catch (e) {
-          lastErr = e;
-        }
+      if (videoData.error) {
+        throw new Error(videoData.error.message || 'Помилка YouTube API Key');
       }
-      throw new Error('Усі дзеркала недоступні');
+
+      var currentTitle = videoId;
+      var tags = [];
+      var categoryId = '';
+
+      if (videoData.items && videoData.items.length > 0) {
+        var snippet = videoData.items[0].snippet;
+        currentTitle = snippet.title;
+        tags = snippet.tags || [];
+        categoryId = snippet.categoryId || '';
+      }
+
+      var queryKeywords = extractSearchKeywords(currentTitle);
+      if (tags.length > 0) {
+        queryKeywords = tags.slice(0, 3).join(' ');
+      }
+
+      var searchUrl = 'https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=6&q=' + encodeURIComponent(queryKeywords) + '&key=' + apiKey;
+      if (categoryId) {
+        searchUrl += '&videoCategoryId=' + categoryId;
+      }
+
+      var searchRes = await fetch(searchUrl);
+      var searchData = await searchRes.json();
+
+      if (searchData.error) {
+        throw new Error(searchData.error.message || 'Помилка пошуку в YouTube API');
+      }
+
+      var related = (searchData.items || [])
+        .filter(function(item) { return item.id && item.id.videoId && item.id.videoId !== videoId; })
+        .slice(0, 5)
+        .map(function(item) {
+          return {
+            id: item.id.videoId,
+            title: item.snippet.title || 'Без назви'
+          };
+        });
+
+      return {
+        current: {
+          id: videoId,
+          title: currentTitle
+        },
+        related: related
+      };
     }
 
     async function fetchRelated(videoId, parentId) {
+      var apiKey = apiKeyInput.value.trim();
+      if (!apiKey) {
+        alert('Будь ласка, введіть ваш Google YouTube API Key у лівому полі!');
+        return;
+      }
+
       if (!videoId) return;
       showLoading(true);
 
       try {
-        var result = await fetchVideoDataDirectly(videoId);
+        var result = await fetchFromYouTubeApi(videoId, apiKey);
 
         if (!nodes.get(videoId)) {
           nodes.add({
@@ -219,18 +252,24 @@
             }
           });
         } else {
-          alert('Для цього відео немає нових рекомендацій.');
+          alert('Для цього відео немає нових релевантних відео.');
         }
 
       } catch (err) {
-        console.error('Помилка завантаження:', err);
-        alert('Не вдалося завантажити рекомендації з мережі.');
+        console.error('Помилка API:', err);
+        alert('Помилка Google API: ' + err.message);
       } finally {
         showLoading(false);
       }
     }
 
     function startTree() {
+      var apiKey = apiKeyInput.value.trim();
+      if (!apiKey) {
+        alert('Введіть ваш Google YouTube API Key!');
+        return;
+      }
+
       var inputVal = urlInput.value;
       if (!inputVal) {
         alert('Будь ласка, вставте посилання на YouTube!');
@@ -260,7 +299,6 @@
       });
     }
 
-    // Клік на вузол — завантажує його рекомендації
     network.on("click", function (params) {
       if (params.nodes && params.nodes.length > 0) {
         var clickedNodeId = params.nodes[0];
@@ -268,7 +306,6 @@
       }
     });
 
-    // Подвійний клік — відкриває відео на YouTube
     network.on("doubleClick", function (params) {
       if (params.nodes && params.nodes.length > 0) {
         var videoId = params.nodes[0];
